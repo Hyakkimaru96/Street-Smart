@@ -4,19 +4,23 @@ import android.Manifest
 import android.app.Activity
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.graphics.Bitmap
-import android.location.Location
 import android.net.Uri
 import android.os.Bundle
 import android.provider.MediaStore
 import android.widget.*
+import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
-import com.google.android.gms.location.FusedLocationProviderClient
-import com.google.android.gms.location.LocationServices
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.FirebaseFirestore
+import okhttp3.*
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.RequestBody.Companion.asRequestBody
+import org.json.JSONObject
 import java.io.File
+import java.io.IOException
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -30,11 +34,15 @@ class ReportActivity : AppCompatActivity() {
     private lateinit var locationText: TextView
 
     private var imageUri: Uri? = null
-    private lateinit var fusedLocationClient: FusedLocationProviderClient
+    private var imageFile: File? = null
 
     private val CAMERA_REQUEST_CODE = 100
     private val GALLERY_REQUEST_CODE = 101
     private val PERMISSION_REQUEST_CODE = 102
+
+    private val locationViewModel: LocationViewModel by viewModels()
+    private val firestore = FirebaseFirestore.getInstance()
+    private val auth = FirebaseAuth.getInstance()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -47,86 +55,81 @@ class ReportActivity : AppCompatActivity() {
         editDescription = findViewById(R.id.editDescription)
         locationText = findViewById(R.id.locationText)
 
-        fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
+        checkPermissionsAndFetchLocation()
 
-        checkPermissions()
-
-        btnTakePhoto.setOnClickListener {
-            openCamera()
-        }
-
-        btnUploadPhoto.setOnClickListener {
-            openGallery()
-        }
+        btnTakePhoto.setOnClickListener { openCamera() }
+        btnUploadPhoto.setOnClickListener { openGallery() }
 
         btnSubmit.setOnClickListener {
             val description = editDescription.text.toString()
-            Toast.makeText(this, "Report Submitted:\n$description", Toast.LENGTH_SHORT).show()
-            // TODO: Upload data to Firebase or send via API
+            val location = locationText.text.toString()
+
+            if (description.isBlank()) {
+                Toast.makeText(this, "Please enter a description", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+
+            uploadImageToCloudinary { imageUrl ->
+                val report = Report(
+                    description = description,
+                    location = location,
+                    imageUrl = imageUrl,
+                    userId = auth.currentUser?.uid ?: "",
+                    upvotes = 0,
+                    downvotes = 0,
+                    status = 0,
+                    userVoteStatus = 0
+                )
+
+                firestore.collection("reports")
+                    .add(report)
+                    .addOnSuccessListener {
+                        Toast.makeText(this, "Report submitted!", Toast.LENGTH_SHORT).show()
+                        finish()
+                    }
+                    .addOnFailureListener {
+                        Toast.makeText(this, "Failed to submit report", Toast.LENGTH_SHORT).show()
+                    }
+            }
+        }
+
+        locationViewModel.locationText.observe(this) { text ->
+            locationText.text = text
         }
     }
 
-    private fun checkPermissions() {
+    private fun checkPermissionsAndFetchLocation() {
         val permissions = arrayOf(
-            Manifest.permission.CAMERA,
-            Manifest.permission.READ_EXTERNAL_STORAGE,
-            Manifest.permission.ACCESS_FINE_LOCATION
+            Manifest.permission.ACCESS_FINE_LOCATION,
+            Manifest.permission.ACCESS_COARSE_LOCATION
         )
         val toRequest = permissions.filter {
             ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
         }
+
         if (toRequest.isNotEmpty()) {
             ActivityCompat.requestPermissions(this, toRequest.toTypedArray(), PERMISSION_REQUEST_CODE)
         } else {
-            fetchLocation()
+            locationViewModel.getLocation(this)
         }
     }
-
-    private fun fetchLocation() {
-        fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
-
-        if (ActivityCompat.checkSelfPermission(
-                this, Manifest.permission.ACCESS_FINE_LOCATION
-            ) != PackageManager.PERMISSION_GRANTED &&
-            ActivityCompat.checkSelfPermission(
-                this, Manifest.permission.ACCESS_COARSE_LOCATION
-            ) != PackageManager.PERMISSION_GRANTED
-        ) {
-            Toast.makeText(this, "Location permission not granted", Toast.LENGTH_SHORT).show()
-            return
-        }
-
-        fusedLocationClient.lastLocation.addOnSuccessListener { location: Location? ->
-            if (location != null) {
-                val lat = location.latitude
-                val lon = location.longitude
-                locationText.text = "Location: $lat, $lon"
-            } else {
-                locationText.text = "Location: not available (null)"
-            }
-        }.addOnFailureListener {
-            locationText.text = "Location fetch failed: ${it.localizedMessage}"
-        }
-    }
-
 
     override fun onRequestPermissionsResult(
         requestCode: Int, permissions: Array<out String>, grantResults: IntArray
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-
-        if (requestCode == PERMISSION_REQUEST_CODE) {
-            if (grantResults.isNotEmpty() && grantResults.all { it == PackageManager.PERMISSION_GRANTED }) {
-                fetchLocation()
-            } else {
-                Toast.makeText(this, "Location permission denied", Toast.LENGTH_SHORT).show()
-            }
+        if (requestCode == PERMISSION_REQUEST_CODE &&
+            grantResults.all { it == PackageManager.PERMISSION_GRANTED }
+        ) {
+            locationViewModel.getLocation(this)
+        } else {
+            Toast.makeText(this, "Location permission denied", Toast.LENGTH_SHORT).show()
         }
     }
 
     private fun openCamera() {
-        val photoFile = createImageFile()
-        imageUri = FileProvider.getUriForFile(this, "$packageName.provider", photoFile)
+        imageFile = createImageFile()
+        imageUri = FileProvider.getUriForFile(this, "$packageName.provider", imageFile!!)
         val intent = Intent(MediaStore.ACTION_IMAGE_CAPTURE)
         intent.putExtra(MediaStore.EXTRA_OUTPUT, imageUri)
         startActivityForResult(intent, CAMERA_REQUEST_CODE)
@@ -139,14 +142,21 @@ class ReportActivity : AppCompatActivity() {
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
-
         if (resultCode == Activity.RESULT_OK) {
             when (requestCode) {
-                CAMERA_REQUEST_CODE -> {
-                    imagePreview.setImageURI(imageUri)
-                }
+                CAMERA_REQUEST_CODE -> imagePreview.setImageURI(imageUri)
                 GALLERY_REQUEST_CODE -> {
                     imageUri = data?.data
+                    imageFile = imageUri?.let { uri ->
+                        val inputStream = contentResolver.openInputStream(uri)
+                        val tempFile = createImageFile()
+                        inputStream?.use { input ->
+                            tempFile.outputStream().use { output ->
+                                input.copyTo(output)
+                            }
+                        }
+                        tempFile
+                    }
                     imagePreview.setImageURI(imageUri)
                 }
             }
@@ -158,5 +168,44 @@ class ReportActivity : AppCompatActivity() {
         val fileName = "IMG_$timestamp.jpg"
         val storageDir = cacheDir
         return File(storageDir, fileName)
+    }
+
+    private fun uploadImageToCloudinary(onUploaded: (String) -> Unit) {
+        val file = imageFile
+        if (file == null) {
+            onUploaded("") // No image, proceed anyway
+            return
+        }
+
+        val requestBody = MultipartBody.Builder()
+            .setType(MultipartBody.FORM)
+            .addFormDataPart("file", file.name, file.asRequestBody("image/*".toMediaTypeOrNull()))
+            .addFormDataPart("upload_preset", "streetsmart")
+            .addFormDataPart("folder", "reports")
+            .build()
+
+        val request = Request.Builder()
+            .url("https://api.cloudinary.com/v1_1/dvsawqinf/image/upload")
+            .post(requestBody)
+            .build()
+
+        val client = OkHttpClient()
+        client.newCall(request).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                runOnUiThread {
+                    Toast.makeText(this@ReportActivity, "Image upload failed", Toast.LENGTH_SHORT).show()
+                    onUploaded("")
+                }
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                val responseData = response.body?.string()
+                val json = JSONObject(responseData ?: "")
+                val imageUrl = json.optString("secure_url", "")
+                runOnUiThread {
+                    onUploaded(imageUrl)
+                }
+            }
+        })
     }
 }

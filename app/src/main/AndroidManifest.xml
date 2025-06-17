@@ -2,8 +2,13 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
+    <uses-feature
+        android:name="android.hardware.camera"
+        android:required="false" />
+
     <uses-permission android:name="android.permission.CAMERA" />
-    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
@@ -11,6 +16,7 @@
 
 
     <application
+
         android:allowBackup="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"
@@ -20,7 +26,7 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.StreetSmart"
         tools:targetApi="31">
-
+        <uses-library android:name="org.apache.http.legacy" android:required="false"/>
 
         <activity android:name=".SignupActivity" />
         <activity android:name=".HomeActivity" />
@@ -35,6 +41,7 @@
             </intent-filter>
         </activity>
         <activity android:name=".ReportActivity" />
+        <activity android:name=".ReportDetailActivity" />
 
 
         <provider

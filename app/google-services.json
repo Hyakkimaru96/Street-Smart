@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "793067643132",
+    "project_id": "streetsmart-e2e02",
+    "storage_bucket": "streetsmart-e2e02.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:793067643132:android:1c90dd494e430428607779",
+        "android_client_info": {
+          "package_name": "com.example.streetsmart"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDCZvtoLUPd8KFTjCuqJnLgKuS7ePuSLPE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

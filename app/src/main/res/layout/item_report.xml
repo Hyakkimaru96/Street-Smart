@@ -3,8 +3,14 @@
     android:padding="12dp"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:background="#EEEEEE"
     android:layout_marginBottom="8dp">
+
+    <ImageView
+        android:id="@+id/reportImageView"
+        android:layout_width="match_parent"
+        android:layout_height="200dp"
+        android:scaleType="centerCrop"
+        android:layout_marginBottom="8dp"/>
 
     <TextView
         android:id="@+id/textDescription"
