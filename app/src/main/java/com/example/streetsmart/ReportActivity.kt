@@ -39,6 +39,8 @@ class ReportActivity : AppCompatActivity() {
     private val CAMERA_REQUEST_CODE = 100
     private val GALLERY_REQUEST_CODE = 101
     private val PERMISSION_REQUEST_CODE = 102
+    private val CAMERA_AND_STORAGE_PERMISSION_REQUEST_CODE = 103
+
 
     private val locationViewModel: LocationViewModel by viewModels()
     private val firestore = FirebaseFirestore.getInstance()
@@ -122,23 +124,37 @@ class ReportActivity : AppCompatActivity() {
             grantResults.all { it == PackageManager.PERMISSION_GRANTED }
         ) {
             locationViewModel.getLocation(this)
-        } else {
-            Toast.makeText(this, "Location permission denied", Toast.LENGTH_SHORT).show()
+        } else if (requestCode == CAMERA_AND_STORAGE_PERMISSION_REQUEST_CODE) {
+            if (grantResults.all { it == PackageManager.PERMISSION_GRANTED }) {
+                Toast.makeText(this, "Permissions granted. Try again.", Toast.LENGTH_SHORT).show()
+            } else {
+                Toast.makeText(this, "Camera or storage permission denied", Toast.LENGTH_SHORT).show()
+            }
         }
     }
 
+
     private fun openCamera() {
-        imageFile = createImageFile()
-        imageUri = FileProvider.getUriForFile(this, "$packageName.provider", imageFile!!)
-        val intent = Intent(MediaStore.ACTION_IMAGE_CAPTURE)
-        intent.putExtra(MediaStore.EXTRA_OUTPUT, imageUri)
-        startActivityForResult(intent, CAMERA_REQUEST_CODE)
+        if (hasCameraAndStoragePermissions()) {
+            imageFile = createImageFile()
+            imageUri = FileProvider.getUriForFile(this, "$packageName.provider", imageFile!!)
+            val intent = Intent(MediaStore.ACTION_IMAGE_CAPTURE)
+            intent.putExtra(MediaStore.EXTRA_OUTPUT, imageUri)
+            startActivityForResult(intent, CAMERA_REQUEST_CODE)
+        } else {
+            requestCameraAndStoragePermissions()
+        }
     }
 
     private fun openGallery() {
-        val intent = Intent(Intent.ACTION_PICK, MediaStore.Images.Media.EXTERNAL_CONTENT_URI)
-        startActivityForResult(intent, GALLERY_REQUEST_CODE)
+        if (hasCameraAndStoragePermissions()) {
+            val intent = Intent(Intent.ACTION_PICK, MediaStore.Images.Media.EXTERNAL_CONTENT_URI)
+            startActivityForResult(intent, GALLERY_REQUEST_CODE)
+        } else {
+            requestCameraAndStoragePermissions()
+        }
     }
+
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
@@ -169,6 +185,34 @@ class ReportActivity : AppCompatActivity() {
         val storageDir = cacheDir
         return File(storageDir, fileName)
     }
+
+    private fun hasCameraAndStoragePermissions(): Boolean {
+        val cameraPermission = ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
+
+        val storagePermission = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+            ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_IMAGES)
+        } else {
+            ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE)
+        }
+
+        return cameraPermission == PackageManager.PERMISSION_GRANTED &&
+                storagePermission == PackageManager.PERMISSION_GRANTED
+    }
+
+
+    private fun requestCameraAndStoragePermissions() {
+        val permissions = mutableListOf(Manifest.permission.CAMERA)
+
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+            permissions.add(Manifest.permission.READ_MEDIA_IMAGES)
+        } else {
+            permissions.add(Manifest.permission.READ_EXTERNAL_STORAGE)
+        }
+
+        ActivityCompat.requestPermissions(this, permissions.toTypedArray(), CAMERA_AND_STORAGE_PERMISSION_REQUEST_CODE)
+    }
+
+
 
     private fun uploadImageToCloudinary(onUploaded: (String) -> Unit) {
         val file = imageFile
