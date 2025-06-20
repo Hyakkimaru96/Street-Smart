@@ -5,6 +5,12 @@ import android.app.Activity
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
+import com.google.android.gms.common.api.ResolvableApiException
+import com.google.android.gms.location.LocationRequest
+import com.google.android.gms.location.LocationServices
+import com.google.android.gms.location.LocationSettingsRequest
+import com.google.android.gms.location.Priority
+import com.google.android.gms.location.SettingsClient
 import android.os.Bundle
 import android.provider.MediaStore
 import android.widget.*
@@ -13,6 +19,9 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
+import android.content.IntentSender
+import android.location.LocationManager
+import com.google.android.gms.location.*
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import okhttp3.*
@@ -105,6 +114,7 @@ class ReportActivity : AppCompatActivity() {
             Manifest.permission.ACCESS_FINE_LOCATION,
             Manifest.permission.ACCESS_COARSE_LOCATION
         )
+
         val toRequest = permissions.filter {
             ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
         }
@@ -112,9 +122,32 @@ class ReportActivity : AppCompatActivity() {
         if (toRequest.isNotEmpty()) {
             ActivityCompat.requestPermissions(this, toRequest.toTypedArray(), PERMISSION_REQUEST_CODE)
         } else {
-            locationViewModel.getLocation(this)
+            // Check if GPS is turned on
+            val locationRequest = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 1000).build()
+            val builder = LocationSettingsRequest.Builder().addLocationRequest(locationRequest)
+
+            val client: SettingsClient = LocationServices.getSettingsClient(this)
+            val task = client.checkLocationSettings(builder.build())
+
+            task.addOnSuccessListener {
+                // All location settings are satisfied, fetch location
+                locationViewModel.getLocation(this)
+            }
+
+            task.addOnFailureListener { exception ->
+                if (exception is ResolvableApiException) {
+                    try {
+                        exception.startResolutionForResult(this, 2001)
+                    } catch (sendEx: IntentSender.SendIntentException) {
+                        sendEx.printStackTrace()
+                    }
+                } else {
+                    Toast.makeText(this, "Please enable location services", Toast.LENGTH_LONG).show()
+                }
+            }
         }
     }
+
 
     override fun onRequestPermissionsResult(
         requestCode: Int, permissions: Array<out String>, grantResults: IntArray
@@ -158,6 +191,15 @@ class ReportActivity : AppCompatActivity() {
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == 2001) {
+            if (resultCode == Activity.RESULT_OK) {
+                // User enabled GPS
+                locationViewModel.getLocation(this)
+            } else {
+                Toast.makeText(this, "Location services are required to submit a report", Toast.LENGTH_LONG).show()
+            }
+        }
+
         if (resultCode == Activity.RESULT_OK) {
             when (requestCode) {
                 CAMERA_REQUEST_CODE -> imagePreview.setImageURI(imageUri)
@@ -178,6 +220,7 @@ class ReportActivity : AppCompatActivity() {
             }
         }
     }
+
 
     private fun createImageFile(): File {
         val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
